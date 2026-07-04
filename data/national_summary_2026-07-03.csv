@@ -1,0 +1,10 @@
+metric,value,as_of_date,source_url,retrieval_date
+domestic_cases,145,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+states_reporting,17,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+hospitalizations,20,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+deaths,0,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+median_age_years,42,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+pct_female,61,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+median_onset_date,2026-05-13,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+travel_associated_cases,45,2026-06-16,https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html,2026-07-03
+michigan_additional_cases_not_in_cdc_count,170,2026-06-30,https://www.today.com/health/disease/explosive-diarrhea-parasite-cyclospora-cayetanensis-outbreak-rcna352540,2026-07-03
