@@ -233,3 +233,10 @@ the data automatically — no manual copy-pasting of numbers into prose.
 - All counts are undercounts — cyclosporiasis testing is not routine, and
   CDC explicitly states the true burden is likely higher than reported.
 - Data is preliminary and subject to change per CDC's own disclaimer.
+
+## 8. AI assistance disclosure
+
+Portions of this project's R code, data-cleaning logic, and documentation
+were drafted with assistance from Claude (Anthropic). All research
+questions, methodological decisions, and interpretation of findings are my
+own.
