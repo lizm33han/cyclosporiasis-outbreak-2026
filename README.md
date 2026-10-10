@@ -1,242 +1,214 @@
-# Cyclosporiasis Outbreak Surveillance — Summer 2026
+# Cyclosporiasis Outbreak Surveillance: Summer 2026
 
 A beginner epidemiology project using R to explore the 2026 U.S. cyclosporiasis
-(Cyclospora) outbreak, with a focus on Michigan's late-June cluster.
+(*Cyclospora*) outbreak with CDC NNDSS surveillance data. Version 2 (October 2026)
+covers MMWR weeks 1-39.
 
 This project is a learning exercise, not an official analysis.
 
-**📄 [Read the full report](cyclosporiasis_report.md)** — a single
-R Markdown document with all analysis, plots, and findings in one place.
-The sections below document the underlying data and process; the report
-is the polished narrative built from it.
+**[Read the full report](cyclosporiasis_report.md)**: a single R Markdown
+document with the analysis, plots, and findings in one place. The sections below
+document the data and process; the report is the narrative built from them.
 
-## 1. Background
+## 1. What changed in version 2
+
+The July version used an NNDSS export that stopped at MMWR week 25 (992 national
+cumulative cases). This update uses the October 10 export through week 39.
+
+- The 2026 national cumulative total reached **32,286** cases, **10.4x** the
+  2022-2025 average at the same week (3,100), with every year compared as first
+  published.
+- Michigan accounts for 45% of the national total and Ohio for 20%. The five
+  largest states account for 76%.
+- The July report flagged that recent weeks were likely undercounted. The data now
+  show the scale: 2025's cumulative total at week 25 was first published as 272 and
+  is now reported as 744.
+- A correction to the July documentation: NNDSS weekly rows are **not** revised
+  after publication (all 2026 rows for weeks 1-25 are identical between the July and
+  October exports). Revisions are only visible in the "previous year" cumulative
+  column of the following year's rows. See Section 2.
+
+## 2. Background and data
+
+### The disease
 
 Cyclosporiasis is an intestinal illness caused by the microscopic parasite
-*Cyclospora cayetanensis*. Key facts relevant to this analysis:
+*Cyclospora cayetanensis*.
 
-- **Transmission:** foodborne/waterborne only — people are infected by eating
-  food or drinking water contaminated with feces containing the parasite.
-  Freshly shed oocysts are *not* immediately infectious; it takes 1–2 weeks in
-  the environment for them to sporulate. **Direct person-to-person spread does
-  not occur.** This matters for analysis: don't expect an exponential,
-  transmission-chain-driven curve like you'd see with measles or Ebola. Case
-  curves for cyclosporiasis outbreaks tend to reflect exposure to a shared
-  contaminated food source, clustered in time.
-- **Incubation:** 2–14 days (average ~1 week) from exposure to symptom onset.
-- **Symptoms:** watery diarrhea (often described as "explosive"), fatigue,
-  cramping, nausea, low-grade fever; can last weeks and relapse.
-- **Seasonality:** U.S. cases cluster May–August every year; this is expected,
-  not itself evidence of an unusual outbreak.
-- **Known 2026 event:** CDC reported 145 domestically acquired cases across
-  17 states as of June 16, 2026, with an additional, separately reported
-  cluster of 170+ cases across 7 southeast Michigan counties by June 30, 2026.
-  No common food source has been confirmed as of this writing.
+- **Transmission:** foodborne or waterborne only. Freshly shed oocysts are not
+  immediately infectious (it takes 1-2 weeks in the environment), so direct
+  person-to-person spread does not occur. Case curves tend to reflect exposure to a
+  shared contaminated food source rather than an exponential transmission chain.
+- **Incubation:** 2-14 days (average about 1 week).
+- **Seasonality:** U.S. cases cluster May to August every year, which is why this
+  project builds a seasonal baseline from prior years.
 
-## 2. Data sources
+### Data sources
 
 | File | Description | Source | Retrieved |
 |---|---|---|---|
-| `data/NNDSS_Weekly_Data_2022-2026_20260703.csv` | **Primary source.** Weekly case counts by state/region, MMWR years 2022–2026 (2022–2024 and 2025 complete; 2026 partial through week 25), including each area's previous-52-week max and cumulative year-to-date totals | [NNDSS Weekly Data, data.cdc.gov](https://data.cdc.gov/NNDSS/NNDSS-Weekly-Data/x9gk-5huc) | 2026-07-04 |
-| `data/national_summary_2026-07-03.csv` | Supplementary demographic details not present in NNDSS (median age, % female, hospitalizations, travel-associated case count) | [CDC Surveillance of Cyclosporiasis](https://www.cdc.gov/cyclosporiasis/php/surveillance/index.html) | 2026-07-03 |
+| `data/NNDSS_Weekly_Data_2022-2026_20260703.csv` | Weekly case counts by state and region, MMWR years 2022-2026 (2026 stops at week 25). Used for the **2022-2025 baseline years**. | [NNDSS Weekly Data, data.cdc.gov](https://data.cdc.gov/NNDSS/NNDSS-Weekly-Data/x9gk-5huc) | 2026-07-03 |
+| `data/NNDSS_Weekly_Data_2026_20261010.csv` | Same table, 2026 only, MMWR weeks 1-39. Used for **2026**. | same | 2026-10-10 |
 
-NNDSS (National Notifiable Diseases Surveillance System) is a nationwide
-system where states report weekly case counts for CDC/CSTE-designated
-notifiable conditions. It's downloadable directly from data.cdc.gov, updated
-weekly, and includes each jurisdiction's **previous 52-week maximum** —
-a real, built-in baseline for "is this unusual?"
+NNDSS (National Notifiable Diseases Surveillance System) is the system through
+which states report weekly case counts for nationally notifiable conditions.
 
-### Why a multi-year file instead of just 2026
+### How the weekly tables work
 
-A single comparison year can't tell you whether that year was itself
-unusual. Pulling 2022–2026 lets us build an actual seasonal baseline — a
-min/max range and average across 4 complete years — so we can ask "is 2026
-unusual relative to normal year-to-year variation?" instead of "is 2026
-different from one specific other year?" This mirrors how CDC's own
-aberration-detection method works: it uses a multi-year historical window
-rather than a single comparison year, because one year is too noisy to
-trust on its own.
+- Each row is one reporting area in one MMWR week, **frozen as of its publication
+  week**. Earlier rows are never rewritten.
+- **Current week** is the count reported that week. It captures only about 39% of
+  what ends up in the cumulative total (12,663 vs. 32,286 through week 39),
+  because late reports are folded into the cumulative column but never added back
+  to old `Current week` values.
+- **Cumulative YTD** is therefore the more reliable measure. The weekly measure
+  used in this project is the **change in the cumulative column** ("reports added"),
+  a reporting curve rather than an onset-date epidemic curve.
+- **Revisions** show up only in the "Cumulative YTD Previous MMWR Year" column of
+  the next year's rows. Comparing 2025 as first published with 2025 as settled
+  shows early-season counts revised upward by a factor of 2.7 at week 25 and 1.25
+  at week 39. All baseline comparisons here use every year as first published, so
+  they are like for like. The 2026 counts are provisional and will be revised
+  upward as well.
 
-### Four data-cleaning gotchas found in this file
+### Four data-cleaning issues
 
-Worth internalizing these as general lessons for working with any
-multi-year government export, not just this one:
+1. **Inconsistent capitalization across years.** 2022-2024 use ALL CAPS
+   (`"MICHIGAN"`), 2025-2026 use Title Case (`"Michigan"`). An exact-match filter
+   silently drops years. Fixed with `str_to_title()`.
+2. **Thousands separators stored as text.** Counts over 999 appear as `"1,171"`, and
+   `as.numeric("1,171")` silently returns `NA`. Fixed by stripping commas.
+3. **The `-` flag does not reliably mean zero.** It appears on blank cells (where it
+   does mean zero) and on populated cells (where it is only an annotation). Rule:
+   trust a populated value; read the flag only for blank cells. `N`, `NC` and `U`
+   become `NA`.
+4. **Aggregate labels do not unify with case normalization.** `"US RESIDENTS"`
+   becomes `"Us Residents"`, not `"U.S. Residents"`. The project uses only the
+   `"Total"` row and the 50 states plus DC, which do unify.
 
-1. **Inconsistent capitalization across years.** 2022–2024 use ALL CAPS
-   with no periods (`"MICHIGAN"`, `"US RESIDENTS"`); 2025–2026 use Title
-   Case with periods (`"Michigan"`, `"U.S. Residents"`). A naive filter on
-   an exact string match would silently drop 3 of 5 years with no error —
-   just a truncated dataset that looks complete. Fixed by normalizing case
-   (`str_to_title()`) before any filtering or joining across years.
+All four are handled in `scripts/00_load_and_clean.R`.
 
-2. **Thousands-separator commas stored as text.** Once a count exceeds 999
-   (e.g., a full year's cumulative total), it's formatted as `"1,171"`
-   rather than `"1171"`. `as.numeric("1,171")` silently returns `NA`, not
-   1171 — another failure mode with no error message. Fixed by stripping
-   commas before numeric conversion.
+### Other data notes
 
-3. **The `-` flag does not reliably mean "value is zero."** This is the
-   most important one, because it changes actual numbers, not just parsing
-   mechanics. Checked empirically across all ~16,000 rows: the `-` flag
-   appears on 12,431 *blank* cells (where it does mean zero) **and** on
-   1,701 *populated* cells with real values like `"18"` (where it's just a
-   no-issue annotation, unrelated to the value). The correct rule: trust a
-   populated value whenever one exists; only consult the flag to interpret
-   a genuinely blank cell (`-` → 0, `N`/`NC`/`U` → not applicable). See
-   `scripts/03_seasonal_baseline.R` Section 2 for the verification code.
-
-4. **Aggregate/territory labels don't unify with simple case normalization.**
-   `str_to_title()` cleanly unifies all 50 states + DC across all 5 years,
-   but not everything: `"US RESIDENTS"` (2022–2024, no periods) title-cases
-   to `"Us Residents"`, which still doesn't match `"U.S. Residents"`
-   (2025–2026, which already has periods). Same issue for `"U.S.
-   Territories"`. Worse, `"Commonwealth Of Northern Mariana Islands"`
-   (2022–2024) and `"Northern Mariana Islands"` (2025–2026) are a genuine
-   name change, not just a formatting difference. None of this affects the
-   50-state analysis in `04_per_state_comparison.R`, but it would need
-   explicit handling (a manual lookup table, not just case normalization)
-   if the project is extended to include territories or the national
-   aggregate rows from the multi-year file.
-
-### Understanding the NNDSS file
-
-Each row is one (reporting area × week) combination for Cyclosporiasis.
-Key columns:
-
-- **Reporting Area**: a state, a Census region (e.g. "East North Central"),
-  "U.S. Residents" (the national total for residents), or "Total" (grand
-  total including territories and non-U.S. residents)
-- **MMWR WEEK**: epidemiological week number
-- **Current week**: cases reported that week
-- **Current week, flag**: see Gotcha 3 above — don't assume `-` means zero
-  without checking whether the cell is actually blank
-- **Previous 52 week Max**: the highest single-week count for that area in
-  the prior year — a baseline for "is the current week unusual?"
-- **Cumulative YTD Current/Previous MMWR Year**: running total for this
-  year vs. the same weeks last year
-
-### Critical caveat: "Current week" undercounts due to reporting lag
-
-If you sum the `Current week` column across all 25 weeks of 2026, you get
-447. But the actual `Cumulative YTD Current MMWR Year` reported for week 25
-is 992 — more than double. This gap isn't a data error; it grows every week
-and it's a fundamental feature of provisional surveillance data:
-
-- **`Current week`** is a frozen snapshot: it shows however many cases had
-  reached CDC by the time that week's table was published, and it is never
-  revised afterward — not even in a later download of the same file.
-- **Cumulative YTD** is recalculated from the complete dataset every time
-  CDC publishes, so it captures cases that occurred in an earlier week but
-  weren't reported to CDC until later (a delay caused by the chain of
-  illness → doctor visit → lab test → confirmation → state health dept
-  → CDC). CDC's own documentation confirms this pattern.
-
-**Practical implication:** don't read the most recent 1-2 weeks of the
-`Current week` column as "how many people actually got sick that week" —
-read it as "how many had been reported as of this snapshot," which will
-climb higher as backfill arrives. This effect is called **right-censoring**
-or **reporting lag**. The week 25 spike (180) is therefore likely an
-*underestimate* of that week's true case count.
-
-See `scripts/02_nndss_analysis.R` Section 7 for a plot showing this gap
-growing over time. Michigan shows the same effect at smaller scale (a gap
-of 14 cases by week 25) — see Section 6 of that script.
-
-### Remaining limitations to document
-
-- NNDSS data is explicitly **provisional** — CDC states cumulative counts
-  "can increase or decrease as additional information becomes available."
-  Don't treat any single week's number as final.
-- NNDSS aggregates by state/region, not by county — so it can't replace a
-  granular county-level picture for Michigan if that ever becomes available.
-- Reporting completeness varies by jurisdiction (Pennsylvania is voluntary,
-  for instance), which affects cross-state comparisons.
+- Idaho, Mississippi and Pennsylvania carry the "not reportable" flag for
+  cyclosporiasis. Kentucky has no 2022 values, so its baseline uses three years.
+- New York City reports separately from New York State and is excluded from the
+  state ranking.
+- Colorado's 2024 cumulative total jumped by 144 in week 39 and was reversed in week
+  49. As first published, it inflates the 2024 baseline at week 39 slightly (about 36
+  cases in the four-year national average), which does not change any conclusion.
+- Week 53 (2025 only) is excluded from cross-year comparisons.
+- A small number of weekly changes in the cumulative column are negative (37 of
+  17,290 rows). They are left as published.
+- State-level weekly series are lumpy because states send reports in batches.
+  Cumulative totals are more reliable than single weeks.
 
 ## 3. Repo structure
 
 ```
 cyclosporiasis-2026/
 ├── README.md
-├── cyclosporiasis_report.Rmd           # the full report - start here
+├── cyclosporiasis_report.Rmd           # the full report (start here)
 ├── cyclosporiasis_report.md            # knitted output (renders on GitHub)
-├── cyclosporiasis_report_files/        # plot images embedded in the knitted report
+├── cyclosporiasis_report_files/        # plot images used by the knitted report
 ├── data/
-│   ├── NNDSS_Weekly_Data_2022-2026_20260703.csv   # primary source (5 years)
-│   └── national_summary_2026-07-03.csv            # supplementary demographics
+│   ├── NNDSS_Weekly_Data_2022-2026_20260703.csv   # baseline years (2022-2025)
+│   └── NNDSS_Weekly_Data_2026_20261010.csv        # 2026, weeks 1-39
 ├── scripts/
-│   ├── 02_nndss_analysis.R            # 2026-only analysis: weekly curve, YoY vs. 2025, reporting lag
-│   ├── 03_seasonal_baseline.R         # 2022-2026 analysis: real seasonal baseline, not just 1 comparison year
-│   └── 04_per_state_comparison.R      # ranks all 50 states + DC by departure from their own baseline
-└── output/          (generated figures land here; gitignored except .gitkeep)
+│   ├── 00_load_and_clean.R            # shared loader: reads, cleans, builds `cyclo`
+│   ├── 02_nndss_analysis.R            # national season, revisions, reporting lag
+│   ├── 03_seasonal_baseline.R         # Michigan vs. its own history, share of national
+│   └── 04_per_state_comparison.R      # ranks the 50 states + DC
+└── output/                            # figures from the scripts (gitignored except .gitkeep)
 ```
 
-The scripts in `scripts/` and the `.Rmd` cover the same analysis — the
-scripts were built first and are still useful for running one piece of the
-analysis quickly, while `cyclosporiasis_report.Rmd` consolidates everything
-into a single narrative document with the code, output, and interpretation
-together. Knitting the `.Rmd` regenerates `cyclosporiasis_report.md` and
-`cyclosporiasis_report_files/` from scratch, so those two stay in sync with
-the data automatically — no manual copy-pasting of numbers into prose.
+Scripts 02-04 each source `00_load_and_clean.R`, so the cleaning logic lives in one
+place. The report sources it too and contains its own copies of the key analysis
+code so the code and output sit side by side.
 
 ## 4. Workflow (Posit Cloud + GitHub)
 
-1. **Posit Cloud:** create a new RStudio project, and either:
-   - clone this repo directly via the Git pane (`File > New Project >
-     Version Control > Git`), or
-   - upload the folder via the Files pane if starting fresh.
-2. **Fastest path to the full picture:** open `cyclosporiasis_report.Rmd`
-   and click **Knit**. It reads the same CSVs with relative paths
-   (`data/...`), so as long as you open the `.Rproj` at the repo root,
-   paths resolve correctly on any machine. To dig into or re-run one piece
-   of the analysis on its own, `scripts/02_nndss_analysis.R`,
-   `03_seasonal_baseline.R`, and `04_per_state_comparison.R` cover the same
-   logic individually.
-3. **Committing to GitHub:** use the Git tab in Posit Cloud (or terminal:
-   `git add`, `git commit`, `git push`). Suggested commit message convention:
-   - `data: add YYYY-MM-DD CDC snapshot`
-   - `analysis: <what you added>`
-   - `docs: update README`
-4. **Updating data over time:** NNDSS revises provisional counts
-   retroactively, so when you re-pull, save as a new dated CSV (don't
-   overwrite the old one) and re-check earlier weeks, not just new ones.
+1. In Posit Cloud, open the project at the repo root so relative paths (`data/...`)
+   resolve.
+2. Open `cyclosporiasis_report.Rmd` and click **Knit**. Individual scripts can be run
+   on their own; each one sources `scripts/00_load_and_clean.R` first.
+3. **To roll the analysis forward when new weeks are published:** download a fresh
+   NNDSS export (Cyclosporiasis, current year), save it as a new dated file in
+   `data/`, then update `current_file` and `export_date` at the top of
+   `scripts/00_load_and_clean.R`. `latest_week` updates automatically, so no week
+   numbers are hard-coded elsewhere. Keep the old export; comparing two snapshots
+   shows how much the counts were revised.
+4. Commit the `.Rmd`, the knitted `.md`, and the `cyclosporiasis_report_files/`
+   folder together. The `.md` references the images by relative path, so all three
+   are needed for the plots to display on GitHub.
 
-## 5. Findings so far
+## 5. Findings (data through MMWR week 39)
 
-- [x] National 2026 cumulative cases through week 25 are **3.2x** the
-  2022–2025 average at the same point in the season (992 vs. an average of
-  314)
-- [x] Michigan's week-25 case count was 0, 0, 1, and 0 in 2022–2025
-  respectively, vs. **46** in 2026 — a genuine anomaly, not normal seasonal
-  noise
-- [x] Extended the comparison to all 50 states + DC: Michigan is the most
-  extreme outlier, but not the only one — New York (9.8x baseline), Ohio
-  (7.6x), Florida (7.5x), and Virginia (20x, off a very low base) are all
-  well above their own historical norms, suggesting a broader pattern worth
-  investigating rather than an isolated Michigan event
-- [x] Identified and corrected a reporting-lag effect: the `Current week`
-  column undercounts the most recent weeks; cumulative totals are the more
-  trustworthy measure of true burden
+- 2026 national cumulative cases are **32,286**, 10.4x the 2022-2025 average at the
+  same week (3,100). Against 2025 as settled (4,042) the ratio is 8.0x, but that
+  compares a provisional count with a settled one.
+- Reports added peaked in **MMWR week 30** (5,320 in one week) and fell sharply by
+  week 36.
+- **Michigan:** 14,660 cumulative cases (45% of the national total) against 26-36
+  at the same point in 2022-2025. In July its week-25 count was 0, 0, 1 and 0 in
+  2022-2025 against 46 in 2026.
+- **Ohio:** 6,527 (20% of the national total). The top five states (Michigan, Ohio,
+  Illinois, North Carolina, Kansas) account for 76%. 38 of the 48 states and DC
+  that report to NNDSS are above their own 2022-2025 level.
+- Weekly additions rose again in the last published week (week 39), nationally and
+  in Michigan. This file cannot say whether that is a late batch of reports or a new
+  increase; it needs rechecking when later weeks are published.
 
-## 6. Next steps
+## 6. Limitations
 
-- [ ] Re-pull NNDSS data in a few weeks and append to the time series
-  (watch for retroactive revisions to earlier weeks, not just new ones)
-- [ ] Map affected states using `tigris`/`sf`, now that we have real
-  per-state counts and a ratio-to-baseline metric to color by
-- [ ] Once/if county-level Michigan data becomes available from MDHHS,
-  layer it in as a separate, clearly-labeled supplementary dataset
-- [ ] If a common food source is identified, cross-reference the
-  affected-states list against known supply-chain/distribution overlap
+- NNDSS data are provisional, and the most recent weeks are the least complete.
+- The weekly tables describe reporting, not exposure. They carry no onset dates and
+  no food-source information.
+- NNDSS counts and CDC outbreak-page counts are different measures and will not
+  match.
+- All counts are undercounts. Cyclosporiasis testing is not routine.
+- NNDSS aggregates by state, not by county.
 
-## 7. Known caveats to keep in mind throughout
+## 7. Next steps
 
-- All counts are undercounts — cyclosporiasis testing is not routine, and
-  CDC explicitly states the true burden is likely higher than reported.
-- Data is preliminary and subject to change per CDC's own disclaimer.
+- [ ] Re-pull NNDSS when weeks 40 and later are published and compare with this
+  snapshot to measure how much 2026 was revised.
+- [ ] Map state-level cumulative counts with `tigris` and `sf`.
+- [ ] If county-level data become public for Michigan or Ohio, add them as a
+  separate, clearly labeled dataset.
 
-## 8. AI assistance disclosure
+## 8. Changelog
 
-Portions of this project's R code, data-cleaning logic, and documentation
-were drafted with assistance from Claude (Anthropic). All research
-questions, methodological decisions, and interpretation of findings are my
-own.
+**Version 2 (October 2026)**
+- Added the October 10 NNDSS export (weeks 1-39); the July export is kept for the
+  2022-2025 baseline.
+- Added `scripts/00_load_and_clean.R` and removed every hard-coded week 25.
+- Added a section on first-published vs. settled counts and corrected the July
+  statement that earlier weeks are revised in later exports.
+- Changed the weekly measure from the `Current week` column to reports added
+  (change in cumulative), because `Current week` captures only about 39% of cases.
+- Fixed a vintage mismatch in the July year-over-year plot (provisional 2026 vs.
+  settled 2025); all comparisons now use every year as first published.
+- Rebuilt the state ranking on cumulative cases rather than a single week.
+- Retired `01_data_import_exploration.R` and removed `national_summary_2026-07-03.csv`,
+  neither of which the analysis uses.
+
+**Version 1 (July 2026):** initial analysis through MMWR week 25.
+
+## 9. Sources
+
+- Centers for Disease Control and Prevention. *NNDSS Weekly Data* [Data set].
+  data.cdc.gov. https://data.cdc.gov/NNDSS/NNDSS-Weekly-Data/x9gk-5huc
+  (exports retrieved July 3 and October 10, 2026).
+- ABC News. (2026, July 29). *More than 18,000 cyclosporiasis cases reported across
+  45 states: CDC*.
+  https://www.goodmorningamerica.com/wellness/story/18000-cyclosporiasis-cases-reported-45-states-cdc-135194065
+- NC State Extension. (2026, July 21). *Update on cyclosporiasis cases and
+  information*.
+  https://ncfreshproducesafety.ces.ncsu.edu/news/update-on-cyclosporiasis-cases-and-information/
+
+## 10. AI assistance disclosure
+
+Portions of this project's R code, data-cleaning logic, and documentation were
+drafted with assistance from Claude (Anthropic). All research questions,
+methodological decisions, and interpretation of findings are my own.

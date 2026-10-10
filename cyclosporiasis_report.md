@@ -1,350 +1,358 @@
 2026 U.S. Cyclosporiasis Outbreak: A Seasonal Baseline Analysis
 ================
 Elizabeth Meehan, MPH
-2026-07-04
 
-## Overview
+*Version 2, updated October 2026. Data through MMWR week 39 (NNDSS
+export of October 10, 2026).*
 
-This is a beginner epidemiology project using R to explore the 2026 U.S.
-cyclosporiasis (*Cyclospora*) outbreak, with a focus on Michigan’s
-late-June cluster. It’s a learning exercise, not an official public
-health analysis.
+``` r
+# Shared loader: reads both NNDSS exports, cleans them, builds `cyclo` and `latest_week`
+source("scripts/00_load_and_clean.R")
+```
+
+## What changed since the July version
+
+The first version of this report was built from an NNDSS export
+published on July 3, 2026, when only 25 weeks of 2026 data existed and
+the national cumulative total stood at 992 cases. This update uses the
+October 10 export, which runs through MMWR week 39.
+
+- **The season is far larger than the July snapshot suggested.**
+  National cumulative cases reached **32,286** through week 39, which is
+  **10.4x** the 2022-2025 average at the same point (3,100), with every
+  year compared as first published.
+- **The July conclusion held up, and then some.** The July report found
+  Michigan far above its own history and suggested a broader pattern.
+  Michigan now accounts for **45%** of national cumulative cases and
+  Ohio for **20%**.
+- **Provisional counts get revised a lot.** The July report said week 25
+  was likely an undercount. The data now show how much: 2025’s week 25
+  cumulative total was first published as 272 and is now reported as
+  744.
+
+## Background
 
 Cyclosporiasis is an intestinal illness caused by the microscopic
-parasite *Cyclospora cayetanensis*. A few facts that shape how this
-analysis is framed:
+parasite *Cyclospora cayetanensis*. A few facts shape how this analysis
+is framed:
 
-- **Transmission is foodborne/waterborne only.** People are infected by
-  eating food or drinking water contaminated with feces containing the
-  parasite. Freshly shed oocysts are *not* immediately infectious — it
-  takes 1–2 weeks in the environment for them to sporulate, so **direct
-  person-to-person spread does not occur**. This means we shouldn’t
-  expect an exponential, transmission-chain-driven curve like measles or
-  Ebola. Case curves for cyclosporiasis tend to reflect exposure to a
-  shared contaminated food source, clustered in time.
-- **Incubation** is 2–14 days (average ~1 week) from exposure to symptom
-  onset.
-- **Seasonality:** U.S. cases cluster May–August every year — that alone
-  isn’t evidence of an unusual outbreak, which is exactly why this
-  report builds a seasonal baseline rather than looking at 2026 in
-  isolation.
+- **Transmission is foodborne or waterborne only.** People are infected
+  by eating food or drinking water contaminated with feces that contain
+  the parasite. Freshly shed oocysts are not immediately infectious (it
+  takes 1-2 weeks in the environment), so direct person-to-person spread
+  does not occur. Case curves therefore tend to reflect exposure to
+  shared contaminated food, clustered in time, rather than an
+  exponential transmission chain.
+- **Incubation** is 2-14 days (average about 1 week) from exposure to
+  symptoms.
+- **Seasonality:** U.S. cases cluster May to August every year. That
+  alone is not evidence of an unusual outbreak, which is why this report
+  builds a seasonal baseline from prior years.
 
-## Data source
+## Data
 
-Data comes from the **National Notifiable Diseases Surveillance System
-(NNDSS)**, downloaded from
-[data.cdc.gov](https://data.cdc.gov/NNDSS/NNDSS-Weekly-Data/x9gk-5huc),
-covering MMWR years 2022–2026 (2022–2025 complete, 2026 partial through
-week 25). Every state reports weekly case counts for CDC/CSTE-designated
-notifiable conditions, and the export includes each jurisdiction’s
-**previous 52-week maximum** — a real, built-in baseline for “is this
-unusual?”
+Data come from the **National Notifiable Diseases Surveillance System
+(NNDSS)** weekly tables on
+[data.cdc.gov](https://data.cdc.gov/NNDSS/NNDSS-Weekly-Data/x9gk-5huc).
+Two exports are used:
 
-### Why a multi-year file instead of just 2026
+| File                                       | Used for                 |
+|--------------------------------------------|--------------------------|
+| `NNDSS_Weekly_Data_2022-2026_20260703.csv` | Baseline years 2022-2025 |
+| `NNDSS_Weekly_Data_2026_20261010.csv`      | 2026, weeks 1-39         |
 
-A single comparison year can’t tell you whether that year was itself
-unusual. Using 2022–2026 lets us build an actual seasonal baseline — a
-min/max range and average across 4 complete years — so we can ask “is
-2026 unusual relative to normal year-to-year variation?” rather than “is
-2026 different from one specific other year?” This mirrors CDC’s own
-aberration-detection approach, which uses a multi-year historical window
-for the same reason: one year alone is too noisy to trust.
+The October export contains only 2026. That is fine because NNDSS rows
+are snapshots of what was published in each week and are not rewritten
+later. The check below confirms it by comparing the 2026 rows (weeks
+1-25) in the two exports.
 
-### Four data-cleaning issues found in this file
+``` r
+july_2026 <- read_nndss(baseline_file) %>%
+  filter(year == current_year, label == "Cyclosporiasis", week <= 52)
 
-Worth stating explicitly, since they affect every number that follows
-and are useful lessons for working with any multi-year government
-export:
+check <- july_2026 %>%
+  inner_join(current %>% filter(label == "Cyclosporiasis"),
+             by = c("area", "week"), suffix = c("_jul", "_oct")) %>%
+  summarise(
+    rows_compared = n(),
+    rows_changed  = sum(coalesce(current_week_jul, -1) != coalesce(current_week_oct, -1) |
+                        coalesce(cum_ytd_jul, -1)      != coalesce(cum_ytd_oct, -1))
+  )
+check
+```
 
-1.  **Inconsistent capitalization across years.** 2022–2024 use ALL CAPS
-    with no periods (`"MICHIGAN"`, `"US RESIDENTS"`); 2025–2026 use
-    Title Case with periods (`"Michigan"`, `"U.S. Residents"`). A naive
-    exact-match filter would silently drop 3 of 5 years with no error.
-    Fixed by normalizing case (`str_to_title()`) before filtering or
-    joining across years.
+    ## # A tibble: 1 × 2
+    ##   rows_compared rows_changed
+    ##           <int>        <int>
+    ## 1          1750            0
 
-2.  **Thousands-separator commas stored as text.** Counts over 999 are
-    formatted as `"1,171"` rather than `"1171"`. `as.numeric("1,171")`
-    silently returns `NA`. Fixed by stripping commas before numeric
-    conversion.
+### Data-cleaning issues
 
-3.  **The `-` flag does not reliably mean “value is zero.”** Checked
-    empirically across all ~16,000 rows: `-` appears on 12,431 *blank*
-    cells (where it does mean zero) **and** on 1,701 *populated* cells
-    with real values like `"18"` (where it’s just a no-issue
-    annotation). The correct rule: trust a populated value whenever one
-    exists; only consult the flag to interpret a genuinely blank cell.
+These affect every number in the report, and are worth knowing for any
+multi-year government export.
 
-4.  **Aggregate/territory labels don’t unify with simple case
-    normalization.** `str_to_title()` cleanly unifies all 50 states +
-    DC, but `"US RESIDENTS"` title-cases to `"Us Residents"`, which
-    still doesn’t match `"U.S. Residents"` — the older years never had
-    periods to strip. This doesn’t affect the state-level analysis
-    below, but would need a manual lookup table if extended to
-    territories.
+1.  **Inconsistent capitalization across years.** 2022-2024 use ALL CAPS
+    (`"MICHIGAN"`), 2025-2026 use Title Case (`"Michigan"`). An
+    exact-match filter would silently drop years. Fixed with
+    `str_to_title()`.
+2.  **Thousands separators stored as text.** Counts over 999 appear as
+    `"1,171"`, and `as.numeric("1,171")` silently returns `NA`. Fixed by
+    stripping commas.
+3.  **The `-` flag does not reliably mean zero.** It appears on blank
+    cells (where it does mean zero) and on populated cells (where it is
+    only an annotation). The rule used here: trust a populated value,
+    and read the flag only for blank cells.
+4.  **Aggregate labels do not unify with case normalization.**
+    `"US RESIDENTS"` becomes `"Us Residents"`, not `"U.S. Residents"`.
+    This report uses only the `"Total"` row and the 50 states plus DC,
+    which do unify.
 
-The cleaning function below encodes lessons 1–3 directly:
+The cleaning function (from `scripts/00_load_and_clean.R`):
 
 ``` r
 clean_flagged_col <- function(value_col, flag_col) {
   numeric_val <- suppressWarnings(as.numeric(str_remove_all(as.character(value_col), ",")))
   case_when(
-    !is.na(numeric_val)             ~ numeric_val,   # a real value was reported - always trust it
+    !is.na(numeric_val)             ~ numeric_val,   # a real value was reported: always trust it
     flag_col == "-"                 ~ 0,              # blank + "-" flag = zero
-    flag_col %in% c("N", "NC", "U") ~ NA_real_,        # not reportable / not calculated / unavailable
+    flag_col %in% c("N", "NC", "U") ~ NA_real_,       # not reportable / not calculated / unavailable
     TRUE ~ NA_real_
   )
 }
 ```
 
-## Import and clean
+## How NNDSS counts get revised
+
+Because each weekly row is frozen at publication, early-season counts
+look much smaller than they eventually become. The only place revisions
+are visible is the “previous year” cumulative column in the next year’s
+rows. Comparing 2025 as first published (2025 rows) with 2025 as settled
+(2026 rows) shows the size of the effect.
 
 ``` r
-raw <- read_csv("data/NNDSS_Weekly_Data_2022-2026_20260703.csv", show_col_types = FALSE) %>%
-  mutate(reporting_area_norm = str_to_title(`Reporting Area`))
+vintage <- national %>%
+  filter(year == 2025, week <= latest_week) %>%
+  select(week, first_published = cum_ytd) %>%
+  inner_join(season_2026 %>% select(week, settled = cum_prior_year_settled), by = "week") %>%
+  mutate(ratio = settled / first_published)
 
-cyclo <- raw %>%
-  filter(Label == "Cyclosporiasis", `MMWR WEEK` <= 52) %>%   # exclude 2025's week 53 - no equivalent in other years
-  mutate(
-    current_week_clean     = clean_flagged_col(`Current week`, `Current week, flag`),
-    prev52_max_clean       = clean_flagged_col(`Previous 52 week Max`, `Previous 52 weeks Max, flag`),
-    cum_ytd_current_clean  = clean_flagged_col(`Cumulative YTD Current MMWR Year`, `Cumulative YTD Current MMWR Year, flag`),
-    cum_ytd_prior_clean    = clean_flagged_col(`Cumulative YTD Previous MMWR Year`, `Cumulative YTD Previous MMWR Year, flag`)
-  )
-
-cat("Years present:", paste(sort(unique(cyclo$`Current MMWR Year`)), collapse = ", "), "\n")
+vintage %>%
+  filter(week %in% c(25, 30, 35, latest_week)) %>%
+  knitr::kable(digits = 2,
+               col.names = c("MMWR week", "First published", "Settled", "Settled / first published"),
+               format.args = list(big.mark = ","))
 ```
 
-    ## Years present: 2022, 2023, 2024, 2025, 2026
+| MMWR week | First published | Settled | Settled / first published |
+|----------:|----------------:|--------:|--------------------------:|
+|        25 |             272 |     744 |                      2.74 |
+|        30 |           1,494 |   2,822 |                      1.89 |
+|        35 |           2,742 |   3,863 |                      1.41 |
+|        39 |           3,236 |   4,042 |                      1.25 |
 
 ``` r
-cat("Reporting areas:", n_distinct(cyclo$reporting_area_norm), "\n")
+vintage_long <- vintage %>%
+  pivot_longer(c(first_published, settled), names_to = "version", values_to = "cum") %>%
+  mutate(version = recode(version,
+                          first_published = "As first published in 2025",
+                          settled = "As settled (reported in 2026)"))
+
+ggplot(vintage_long, aes(week, cum, color = version)) +
+  geom_line(linewidth = 0.9) +
+  scale_color_manual(values = c("As first published in 2025" = "grey55",
+                                "As settled (reported in 2026)" = "grey15")) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "2025 cumulative cases: first published vs. settled",
+       subtitle = "Early-season counts are revised upward the most",
+       x = "MMWR week", y = "Cumulative cases", color = NULL,
+       caption = paste0("Source: NNDSS Weekly Data, data.cdc.gov (export ", export_date, ")")) +
+  theme_epi() + theme(legend.position = "bottom")
 ```
 
-    ## Reporting areas: 74
+![](cyclosporiasis_report_files/figure-gfm/vintage-plot-1.png)<!-- -->
 
-## National trend: is 2026 actually unusual?
+Two consequences follow. First, all baseline comparisons in this report
+use every year **as first published**, so the comparison is like for
+like. Second, the 2026 numbers are provisional in the same way, and will
+be revised upward as well. The 10.4x figure is a same-vintage
+comparison; against 2025 as settled (4,042), 2026 is 8.0x, but that
+mixes a provisional count with a settled one.
+
+## The 2026 season nationally
+
+The weekly measure used here is **reports added to the cumulative total
+each week** (the week-over-week change in the cumulative column). It is
+a reporting curve, not an epidemic curve by onset date, so it includes
+late reports for earlier weeks. The reason it is used instead of the
+`Current week` column is shown in the next section.
 
 ``` r
-national_all_years <- cyclo %>%
-  filter(reporting_area_norm == "Total") %>%
-  select(`Current MMWR Year`, `MMWR WEEK`, current_week_clean, cum_ytd_current_clean)
+band <- national %>%
+  filter(year %in% baseline_years, week <= latest_week) %>%
+  group_by(week) %>%
+  summarise(lo = min_na(weekly_additions), hi = max_na(weekly_additions), .groups = "drop") %>%
+  left_join(season_2026 %>% select(week, weekly_additions), by = "week")
 
-baseline_years <- national_all_years %>% filter(`Current MMWR Year` %in% 2022:2025)
-year_2026      <- national_all_years %>% filter(`Current MMWR Year` == 2026)
-
-seasonal_baseline <- baseline_years %>%
-  group_by(`MMWR WEEK`) %>%
-  summarise(
-    baseline_min  = min(current_week_clean, na.rm = TRUE),
-    baseline_max  = max(current_week_clean, na.rm = TRUE),
-    baseline_mean = mean(current_week_clean, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-plot_data <- seasonal_baseline %>%
-  filter(`MMWR WEEK` <= 25) %>%
-  left_join(year_2026, by = "MMWR WEEK")
+ggplot(band, aes(x = week)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = "grey80", alpha = 0.7) +
+  geom_line(aes(y = weekly_additions), color = accent_color, linewidth = 0.9) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Reports added to the national total each week, 2026 vs. 2022-2025",
+       subtitle = "Grey band = min-max range across 2022-2025. Red line = 2026.",
+       x = "MMWR week", y = "Reports added that week",
+       caption = paste0("Source: NNDSS Weekly Data, data.cdc.gov (export ", export_date, "). Provisional data.")) +
+  theme_epi()
 ```
 
+![](cyclosporiasis_report_files/figure-gfm/national-weekly-1.png)<!-- -->
+
+Reports added peaked in MMWR week **30** at **5,320** in a single week,
+then fell sharply by week 36. The same story in cumulative form:
+
 ``` r
-ggplot(plot_data, aes(x = `MMWR WEEK`)) +
-  geom_ribbon(aes(ymin = baseline_min, ymax = baseline_max), fill = "grey80", alpha = 0.6) +
-  geom_line(aes(y = baseline_mean), color = "grey40", linetype = "dashed") +
-  geom_line(aes(y = current_week_clean), color = "#C44E52", linewidth = 1) +
-  labs(
-    title = "2026 U.S. Cyclosporiasis Cases vs. 2022-2025 Seasonal Range",
-    subtitle = "Grey band = min-max range across 2022-2025. Dashed line = 4-year average.\nRed line = 2026 (the year being evaluated).",
-    x = "MMWR Week", y = "Cases (current week)",
-    caption = "Source: NNDSS Weekly Data, data.cdc.gov. 2026 data are provisional."
-  ) +
-  theme_minimal(base_size = 12)
+year_colors <- c("2022" = "grey75", "2023" = "grey60", "2024" = "grey45",
+                 "2025" = "grey25", "2026" = accent_color)
+
+national %>%
+  filter(week <= latest_week) %>%
+  mutate(year_lab = factor(year)) %>%
+  ggplot(aes(week, cum_ytd, color = year_lab, linewidth = year_lab)) +
+  geom_line() +
+  scale_color_manual(values = year_colors) +
+  scale_linewidth_manual(values = c("2022" = 0.6, "2023" = 0.6, "2024" = 0.6, "2025" = 0.6, "2026" = 1.1)) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Cumulative cases by MMWR week, 2022-2026",
+       subtitle = "Every year shown as first published, so the years are directly comparable",
+       x = "MMWR week", y = "Cumulative cases (year to date)", color = NULL,
+       caption = paste0("Source: NNDSS Weekly Data, data.cdc.gov (export ", export_date, ")")) +
+  guides(linewidth = "none") +
+  theme_epi() + theme(legend.position = "bottom")
 ```
 
-![](cyclosporiasis_report_files/figure-gfm/national-plot-1.png)<!-- -->
+![](cyclosporiasis_report_files/figure-gfm/national-cumulative-1.png)<!-- -->
 
 ``` r
-week25_comparison <- national_all_years %>%
-  filter(`MMWR WEEK` == 25) %>%
-  arrange(`Current MMWR Year`) %>%
-  select(`Current MMWR Year`, current_week_clean, cum_ytd_current_clean)
-
-knitr::kable(week25_comparison, col.names = c("Year", "Week 25 cases", "Cumulative YTD"))
+season_2026 %>%
+  filter(week %in% c(25, 28, 30, 33, 36, latest_week)) %>%
+  select(week, current_week, weekly_additions, cum_ytd) %>%
+  knitr::kable(col.names = c("MMWR week", "'Current week' column", "Reports added", "Cumulative"),
+               format.args = list(big.mark = ","))
 ```
 
-| Year | Week 25 cases | Cumulative YTD |
-|-----:|--------------:|---------------:|
-| 2022 |            18 |            265 |
-| 2023 |            25 |            451 |
-| 2024 |            35 |            268 |
-| 2025 |            34 |            272 |
-| 2026 |           180 |            992 |
+| MMWR week | ‘Current week’ column | Reports added | Cumulative |
+|----------:|----------------------:|--------------:|-----------:|
+|        25 |                   180 |           403 |        992 |
+|        28 |                 2,275 |         4,194 |      7,909 |
+|        30 |                 2,393 |         5,320 |     17,199 |
+|        33 |                   530 |         1,426 |     27,169 |
+|        36 |                    57 |           318 |     30,553 |
+|        39 |                   289 |           424 |     32,286 |
+
+## Why “Current week” undercounts
+
+The `Current week` column is frozen at the moment of publication, while
+the cumulative total absorbs reports that arrive late. Through week 39,
+the `Current week` values sum to **12,663**, only **39%** of the
+**32,286** cumulative total. The gap grew every week, which is why the
+report uses cumulative differences for weekly trends.
 
 ``` r
-baseline_avg_cum <- week25_comparison %>%
-  filter(`Current MMWR Year` %in% 2022:2025) %>%
-  summarise(avg = mean(cum_ytd_current_clean, na.rm = TRUE)) %>%
-  pull(avg)
+lag_long <- season_2026 %>%
+  arrange(week) %>%
+  mutate(running_sum_current_week = cumsum(replace_na(current_week, 0))) %>%
+  select(week, running_sum_current_week, cum_ytd) %>%
+  pivot_longer(-week, names_to = "series", values_to = "cases") %>%
+  mutate(series = recode(series,
+                         running_sum_current_week = "Running sum of 'Current week'",
+                         cum_ytd = "Reported cumulative total"))
 
-cum_2026 <- week25_comparison %>% filter(`Current MMWR Year` == 2026) %>% pull(cum_ytd_current_clean)
-ratio_2026 <- cum_2026 / baseline_avg_cum
-```
-
-2026’s cumulative total through week 25 (**992**) is **3.2x** the
-2022–2025 average (314) at the same point in the season.
-
-## Critical caveat: “Current week” undercounts due to reporting lag
-
-If you sum the `Current week` column across all 25 weeks of 2026, you
-get a much smaller number than the reported cumulative total for week
-25. This isn’t a data error — it’s a fundamental feature of provisional
-surveillance data. `Current week` is a frozen snapshot: it shows however
-many cases had reached CDC by the time that week’s table was published,
-and it’s never revised afterward. `Cumulative YTD` is recalculated from
-the complete dataset every time CDC publishes, so it captures cases that
-occurred earlier but weren’t reported until later — a delay caused by
-the chain of illness → doctor visit → lab test → confirmation → state
-health dept → CDC.
-
-``` r
-lag_check <- national_all_years %>%
-  filter(`Current MMWR Year` == 2026) %>%
-  arrange(`MMWR WEEK`) %>%
-  mutate(
-    running_sum_of_current_week = cumsum(replace_na(current_week_clean, 0)),
-    reporting_gap = cum_ytd_current_clean - running_sum_of_current_week
-  )
-
-ggplot(lag_check, aes(x = `MMWR WEEK`)) +
-  geom_line(aes(y = running_sum_of_current_week, color = "Running sum of 'Current week'"), linewidth = 1) +
-  geom_line(aes(y = cum_ytd_current_clean, color = "Reported Cumulative YTD"), linewidth = 1) +
-  labs(
-    title = "Reporting Lag: Why 'Current Week' Undercounts Recent Cases",
-    subtitle = "The gap is cases that arrived at CDC late and were folded into the cumulative\ntotal, but never added back into old 'Current week' values",
-    x = "MMWR Week", y = "Cases", color = NULL,
-    caption = "Source: NNDSS Weekly Data, data.cdc.gov"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom")
+ggplot(lag_long, aes(week, cases, color = series)) +
+  geom_line(linewidth = 0.9) +
+  scale_color_manual(values = c("Running sum of 'Current week'" = "grey55",
+                                "Reported cumulative total" = accent_color)) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Why 'Current week' undercounts",
+       subtitle = "The gap is reports that arrived late and were folded into the cumulative total only",
+       x = "MMWR week", y = "Cases", color = NULL,
+       caption = paste0("Source: NNDSS Weekly Data, data.cdc.gov (export ", export_date, ")")) +
+  theme_epi() + theme(legend.position = "bottom")
 ```
 
 ![](cyclosporiasis_report_files/figure-gfm/reporting-lag-1.png)<!-- -->
 
+## Michigan
+
+In the July report, Michigan’s week-25 count was 0, 0, 1 and 0 in
+2022-2025 against 46 in 2026. Three months later:
+
 ``` r
-final_gap <- lag_check %>% filter(`MMWR WEEK` == max(`MMWR WEEK`)) %>% pull(reporting_gap)
-final_cum <- lag_check %>% filter(`MMWR WEEK` == max(`MMWR WEEK`)) %>% pull(cum_ytd_current_clean)
+michigan %>%
+  filter(week == latest_week) %>%
+  select(year, cum_ytd) %>%
+  arrange(year) %>%
+  mutate(year = as.character(year)) %>%
+  knitr::kable(col.names = c("Year", paste0("Cumulative cases through week ", latest_week, " (as first published)")),
+               format.args = list(big.mark = ","))
 ```
 
-By week 25, the reporting-lag gap has grown to **545** cases (**55%** of
-the reported cumulative total). **Practical implication:** treat the
-most recent 1–2 weeks of `Current week` as provisional and likely to
-rise — don’t read them as “how many people actually got sick that week.”
-
-## Michigan: baseline comparison and its own reporting lag
+| Year | Cumulative cases through week 39 (as first published) |
+|:-----|------------------------------------------------------:|
+| 2022 |                                                    26 |
+| 2023 |                                                    34 |
+| 2024 |                                                    35 |
+| 2025 |                                                    36 |
+| 2026 |                                                14,660 |
 
 ``` r
-michigan_all_years <- cyclo %>%
-  filter(reporting_area_norm == "Michigan") %>%
-  select(`Current MMWR Year`, `MMWR WEEK`, current_week_clean, cum_ytd_current_clean)
+mi_2026 <- michigan %>% filter(year == current_year) %>% select(week, current_week, weekly_additions, cum_ytd)
 
-mi_baseline_seasonal <- michigan_all_years %>%
-  filter(`Current MMWR Year` %in% 2022:2025) %>%
-  group_by(`MMWR WEEK`) %>%
-  summarise(
-    baseline_min = min(current_week_clean, na.rm = TRUE),
-    baseline_max = max(current_week_clean, na.rm = TRUE),
-    .groups = "drop"
-  )
+mi_band <- michigan %>%
+  filter(year %in% baseline_years, week <= latest_week) %>%
+  group_by(week) %>%
+  summarise(lo = min_na(weekly_additions), hi = max_na(weekly_additions), .groups = "drop") %>%
+  left_join(mi_2026 %>% select(week, weekly_additions), by = "week")
 
-mi_plot_data <- mi_baseline_seasonal %>%
-  filter(`MMWR WEEK` <= 25) %>%
-  left_join(michigan_all_years %>% filter(`Current MMWR Year` == 2026), by = "MMWR WEEK")
+ggplot(mi_band, aes(x = week)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = "grey80", alpha = 0.7) +
+  geom_line(aes(y = weekly_additions), color = accent_color, linewidth = 0.9) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Michigan: reports added each week, 2026 vs. 2022-2025",
+       subtitle = "Grey band = min-max range across 2022-2025. Red line = 2026.",
+       x = "MMWR week", y = "Reports added that week",
+       caption = paste0("Source: NNDSS Weekly Data, data.cdc.gov (export ", export_date, "). Provisional data.")) +
+  theme_epi()
 ```
 
-``` r
-ggplot(mi_plot_data, aes(x = `MMWR WEEK`)) +
-  geom_ribbon(aes(ymin = baseline_min, ymax = baseline_max), fill = "grey80", alpha = 0.6) +
-  geom_line(aes(y = current_week_clean), color = "#C44E52", linewidth = 1) +
-  labs(
-    title = "2026 Michigan Cyclosporiasis Cases vs. 2022-2025 Range",
-    subtitle = "Grey band = min-max range across the prior 4 complete years. Red = 2026.",
-    x = "MMWR Week", y = "Cases (current week)",
-    caption = "Source: NNDSS Weekly Data, data.cdc.gov. 2026 data are provisional and likely to revise upward."
-  ) +
-  theme_minimal(base_size = 12)
-```
+![](cyclosporiasis_report_files/figure-gfm/michigan-weekly-1.png)<!-- -->
 
-![](cyclosporiasis_report_files/figure-gfm/michigan-plot-1.png)<!-- -->
+Michigan’s cumulative total (14,660) is 45% of the national total, and
+its prior-year range at this point in the season was only 26-36 cases.
 
-``` r
-mi_week25_comparison <- michigan_all_years %>%
-  filter(`MMWR WEEK` == 25) %>%
-  arrange(`Current MMWR Year`)
+**One thing to watch:** Michigan’s reports added fell to between 96 and
+168 per week in weeks 36-38, then rose again in week 39 (349). The
+`Current week` column also jumps (5 to 244). This file cannot say
+whether that is a late batch of reports or a new increase, so it needs
+rechecking once weeks 40 and later are published.
 
-knitr::kable(mi_week25_comparison %>% select(`Current MMWR Year`, current_week_clean),
-             col.names = c("Year", "Week 25 cases"))
-```
+## State comparison
 
-| Year | Week 25 cases |
-|-----:|--------------:|
-| 2022 |             0 |
-| 2023 |             0 |
-| 2024 |             1 |
-| 2025 |             0 |
-| 2026 |            46 |
+Each state is compared with itself: its 2026 cumulative count against
+its own 2022-2025 mean at the same MMWR week, all as first published.
 
 ``` r
-mi_lag_check <- michigan_all_years %>%
-  filter(`Current MMWR Year` == 2026) %>%
-  arrange(`MMWR WEEK`) %>%
+state_data <- cyclo %>% filter(area %in% us_states)
+
+now_vals <- state_data %>% filter(year == current_year, week == latest_week) %>%
+  select(area, cases_2026 = cum_ytd)
+baseline_vals <- state_data %>% filter(year %in% baseline_years, week == latest_week) %>%
+  group_by(area) %>% summarise(baseline_avg = mean(cum_ytd, na.rm = TRUE), .groups = "drop")
+
+state_ranking <- now_vals %>%
+  full_join(baseline_vals, by = "area") %>%
   mutate(
-    running_sum_of_current_week = cumsum(replace_na(current_week_clean, 0)),
-    reporting_gap = cum_ytd_current_clean - running_sum_of_current_week
-  )
-
-mi_final_gap <- mi_lag_check %>% filter(`MMWR WEEK` == max(`MMWR WEEK`)) %>% pull(reporting_gap)
-```
-
-Michigan’s week-25 case count was 0, 0, 1, and 0 in 2022–2025
-respectively, vs. **46** in 2026 — a genuine anomaly, not normal
-seasonal noise. Michigan also shows its own reporting-lag gap of **14**
-cases by week 25, meaning even this striking number likely understates
-the true count.
-
-## Per-state comparison: is Michigan alone, or part of something broader?
-
-``` r
-us_states <- c(
-  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
-  "Delaware","District Of Columbia","Florida","Georgia","Hawaii","Idaho","Illinois",
-  "Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts",
-  "Michigan","Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada",
-  "New Hampshire","New Jersey","New Mexico","New York","North Carolina","North Dakota",
-  "Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina",
-  "South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington",
-  "West Virginia","Wisconsin","Wyoming"
-)
-
-state_data <- cyclo %>% filter(reporting_area_norm %in% us_states)
-
-week25_states <- state_data %>%
-  filter(`MMWR WEEK` == 25) %>%
-  select(reporting_area_norm, `Current MMWR Year`, current_week_clean)
-
-baseline_2022_2025 <- week25_states %>%
-  filter(`Current MMWR Year` %in% 2022:2025) %>%
-  group_by(reporting_area_norm) %>%
-  summarise(baseline_avg = mean(current_week_clean, na.rm = TRUE), .groups = "drop")
-
-value_2026 <- week25_states %>%
-  filter(`Current MMWR Year` == 2026) %>%
-  select(reporting_area_norm, cases_2026 = current_week_clean)
-
-state_ranking <- baseline_2022_2025 %>%
-  full_join(value_2026, by = "reporting_area_norm") %>%
-  mutate(
-    cases_2026 = replace_na(cases_2026, 0),
+    cases_2026   = replace_na(cases_2026, 0),
     baseline_avg = replace_na(baseline_avg, 0),
+    share_of_national = cases_2026 / cum_now,
     ratio_label = case_when(
       baseline_avg == 0 & cases_2026 == 0 ~ "no change (both 0)",
       baseline_avg == 0 & cases_2026 > 0  ~ "new (baseline was 0)",
@@ -352,93 +360,126 @@ state_ranking <- baseline_2022_2025 %>%
     )
   ) %>%
   arrange(desc(cases_2026))
-```
 
-``` r
 state_ranking %>%
-  select(reporting_area_norm, baseline_avg, cases_2026, ratio_label) %>%
-  slice_max(cases_2026, n = 10) %>%
-  knitr::kable(col.names = c("State", "2022-25 Avg", "2026", "vs. Baseline"),
-               digits = 2)
+  slice_head(n = 10) %>%
+  select(area, baseline_avg, cases_2026, share_of_national, ratio_label) %>%
+  mutate(share_of_national = scales::percent(share_of_national, accuracy = 0.1)) %>%
+  knitr::kable(digits = 1,
+               col.names = c("State", "2022-25 mean", paste0("2026 through wk ", latest_week), "Share of national", "vs. baseline"),
+               format.args = list(big.mark = ","))
 ```
 
-| State       | 2022-25 Avg | 2026 | vs. Baseline |
-|:------------|------------:|-----:|:-------------|
-| Michigan    |        0.25 |   46 | 184x         |
-| New York    |        2.25 |   22 | 9.8x         |
-| Ohio        |        2.75 |   21 | 7.6x         |
-| Florida     |        2.00 |   15 | 7.5x         |
-| Georgia     |        2.25 |   11 | 4.9x         |
-| Virginia    |        0.50 |   10 | 20x          |
-| Colorado    |        1.50 |    8 | 5.3x         |
-| Maryland    |        1.50 |    6 | 4x           |
-| Connecticut |        0.50 |    5 | 10x          |
-| Oklahoma    |        2.00 |    4 | 2x           |
+| State | 2022-25 mean | 2026 through wk 39 | Share of national | vs. baseline |
+|:---|---:|---:|:---|:---|
+| Michigan | 32.8 | 14,660 | 45.4% | 447.6x |
+| Ohio | 73.2 | 6,527 | 20.2% | 89.1x |
+| Illinois | 218.0 | 1,534 | 4.8% | 7x |
+| North Carolina | 197.0 | 930 | 2.9% | 4.7x |
+| Kansas | 29.5 | 857 | 2.7% | 29.1x |
+| Kentucky | 37.0 | 837 | 2.6% | 22.6x |
+| Oklahoma | 30.0 | 572 | 1.8% | 19.1x |
+| Florida | 300.0 | 543 | 1.7% | 1.8x |
+| California | 146.5 | 428 | 1.3% | 2.9x |
+| New York | 180.8 | 380 | 1.2% | 2.1x |
 
 ``` r
-top_states <- state_ranking %>% slice_max(cases_2026, n = 9) %>% pull(reporting_area_norm)
-
-top_state_weekly <- state_data %>%
-  filter(reporting_area_norm %in% top_states, `MMWR WEEK` <= 25)
-
-baseline_band <- top_state_weekly %>%
-  filter(`Current MMWR Year` %in% 2022:2025) %>%
-  group_by(reporting_area_norm, `MMWR WEEK`) %>%
-  summarise(
-    baseline_min = min(current_week_clean, na.rm = TRUE),
-    baseline_max = max(current_week_clean, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-year_2026_states <- top_state_weekly %>%
-  filter(`Current MMWR Year` == 2026) %>%
-  select(reporting_area_norm, `MMWR WEEK`, current_week_clean)
-
-facet_data <- baseline_band %>%
-  left_join(year_2026_states, by = c("reporting_area_norm", "MMWR WEEK")) %>%
-  mutate(reporting_area_norm = factor(reporting_area_norm, levels = top_states))
-
-ggplot(facet_data, aes(x = `MMWR WEEK`)) +
-  geom_ribbon(aes(ymin = baseline_min, ymax = baseline_max), fill = "grey80", alpha = 0.6) +
-  geom_line(aes(y = current_week_clean), color = "#C44E52", linewidth = 0.8) +
-  facet_wrap(~ reporting_area_norm, scales = "free_y", ncol = 3) +
-  labs(
-    title = "2026 vs. 2022-2025 Range: Top 9 States by Week-25 Case Count",
-    subtitle = "Grey band = min-max range across 2022-2025. Red line = 2026. Y-axis scales vary by state.",
-    x = "MMWR Week", y = "Cases (current week)",
-    caption = "Source: NNDSS Weekly Data, data.cdc.gov. 2026 data are provisional."
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(strip.text = element_text(face = "bold"))
+top5_share <- sum(head(state_ranking$cases_2026, 5)) / cum_now
+n_states_up <- sum(state_ranking$cases_2026 > state_ranking$baseline_avg & state_ranking$cases_2026 > 0)
+n_reporting <- sum(!is.na(now_vals$cases_2026))
 ```
 
-![](cyclosporiasis_report_files/figure-gfm/state-smallmultiples-1.png)<!-- -->
+The top five states account for **76%** of the national cumulative
+total, and 38 of the 48 states and DC that report cyclosporiasis to
+NNDSS are above their own 2022-2025 level. Michigan and Ohio dominate,
+but the rise is not limited to them.
 
-Michigan stands out as the most extreme departure from baseline, but
-it’s not the only state running well above its typical pattern — New
-York, Ohio, Florida, and Virginia are all several times their own
-historical week-25 norm. This suggests something broader than a single
-Michigan-specific event may be contributing to the 2026 season,
-consistent with CDC’s public statements that the cause of the
-multi-state rise hasn’t been identified as of this writing.
+``` r
+top_states <- state_ranking %>% slice_max(cases_2026, n = 9) %>% pull(area)
+top_weekly <- state_data %>% filter(area %in% top_states, week <= latest_week)
 
-## Limitations
+state_band <- top_weekly %>%
+  filter(year %in% baseline_years) %>%
+  group_by(area, week) %>%
+  summarise(lo = min_na(weekly_additions), hi = max_na(weekly_additions), .groups = "drop")
 
-- NNDSS data is explicitly **provisional** — cumulative counts can
-  increase or decrease as more information arrives. No single week’s
-  number should be treated as final.
-- NNDSS aggregates by state/region, not by county, so it can’t replace a
-  granular county-level picture for Michigan if that becomes available.
-- Reporting completeness varies by jurisdiction (e.g., Pennsylvania
-  reports voluntarily), which affects cross-state comparisons.
-- All counts are undercounts — cyclosporiasis testing isn’t routine, and
-  CDC states the true burden is likely higher than reported.
+state_band %>%
+  left_join(top_weekly %>% filter(year == current_year) %>% select(area, week, weekly_additions),
+            by = c("area", "week")) %>%
+  mutate(area = factor(area, levels = top_states)) %>%
+  ggplot(aes(x = week)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = "grey80", alpha = 0.7) +
+  geom_line(aes(y = weekly_additions), color = accent_color, linewidth = 0.7) +
+  facet_wrap(~ area, scales = "free_y", ncol = 3) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "2026 vs. 2022-2025 range: top 9 states by cumulative cases",
+       subtitle = "Reports added each week. Grey band = min-max across 2022-2025. Red = 2026. Y-axis scales differ by state.",
+       x = "MMWR week", y = "Reports added that week",
+       caption = paste0("Source: NNDSS Weekly Data, data.cdc.gov (export ", export_date, "). Provisional data.")) +
+  theme_epi(base_size = 11) + theme(strip.text = element_text(face = "bold"))
+```
+
+![](cyclosporiasis_report_files/figure-gfm/state-multiples-1.png)<!-- -->
+
+State-level weekly series are lumpy because states send reports in
+batches. Illinois, for example, added 386 reports in week 35 and none in
+weeks 36-39, and North Carolina alternates between large weeks and
+near-zero weeks. Read single weeks at the state level with caution; the
+cumulative totals are more reliable.
+
+## What this analysis can and cannot say
+
+- **It describes reporting, not exposure.** NNDSS weekly tables carry no
+  onset dates and no food-source information. Public reporting from late
+  July linked a subcluster of the outbreak to shredded iceberg lettuce,
+  while a broader investigation into other clusters had not identified a
+  product (see Sources). Nothing in this dataset can confirm or refine
+  that.
+- **All counts are provisional and will rise.** 2025’s week-25 total was
+  revised upward by a factor of about 2.7. Expect the same for 2026,
+  with early weeks revised the most.
+- **NNDSS and CDC outbreak-page counts are different measures** and will
+  not match. CDC’s outbreak reporting uses its own case definitions and
+  counting windows.
+- **Three states have no NNDSS values for cyclosporiasis:** Idaho,
+  Mississippi and Pennsylvania carry the “not reportable” flag. Kentucky
+  also has no 2022 values, so its baseline uses three years. New York
+  City reports separately from New York State and is excluded from the
+  state ranking.
+- **One baseline anomaly:** Colorado’s 2024 cumulative total jumped by
+  144 in week 39 and was reversed in week 49. As first published, it
+  inflates the national 2024 baseline at week 39 by 144 cases (a shift
+  of about 36 cases in the four-year average), which does not change any
+  conclusion here.
+- **The last published week is the least reliable.** The week-39 uptick
+  nationally and in Michigan should be rechecked once later weeks are
+  available.
 
 ## Next steps
 
-- Re-pull NNDSS data in a few weeks and re-run this report — watch for
-  retroactive revisions to earlier weeks, not just new weeks appearing.
-- Map affected states with `tigris`/`sf`, using the ratio-to-baseline
-  column to color a choropleth.
-- If a common food source is identified, cross-reference the
-  affected-states list against known supply-chain/distribution overlap.
+- Re-pull NNDSS when weeks 40 and later are published, and save it as a
+  new dated file.
+- Compare this snapshot with the next to see how much 2026 gets revised.
+- Map state-level cumulative counts with `tigris` and `sf`.
+- If county-level data become public for Michigan or Ohio, add them as a
+  separate, clearly labeled dataset.
+
+## Sources
+
+- Centers for Disease Control and Prevention. *NNDSS Weekly Data* \[Data
+  set\]. data.cdc.gov.
+  <https://data.cdc.gov/NNDSS/NNDSS-Weekly-Data/x9gk-5huc> (exports
+  retrieved July 3 and October 10, 2026).
+- ABC News. (2026, July 29). *More than 18,000 cyclosporiasis cases
+  reported across 45 states: CDC*.
+  <https://www.goodmorningamerica.com/wellness/story/18000-cyclosporiasis-cases-reported-45-states-cdc-135194065>
+- NC State Extension. (2026, July 21). *Update on cyclosporiasis cases
+  and information*.
+  <https://ncfreshproducesafety.ces.ncsu.edu/news/update-on-cyclosporiasis-cases-and-information/>
+
+## AI assistance disclosure
+
+Portions of this project’s R code, data-cleaning logic, and
+documentation were drafted with assistance from Claude (Anthropic). All
+research questions, methodological decisions, and interpretation of
+findings are my own.
